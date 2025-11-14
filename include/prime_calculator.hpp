@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <set>
 #include <mutex>
 #include <atomic>
 #include <chrono>
@@ -8,12 +9,17 @@
 #include <string>
 #include <memory>
 #include <thread>
+#include <functional>
 #include "thread_pool.hpp"
 
 struct PrimeResult {
     uint64_t number;
     bool is_prime;
     std::chrono::microseconds calculation_time;
+    
+    bool operator<(const PrimeResult& other) const {
+        return number < other.number;
+    }
     
     std::string to_string() const;
 };
@@ -48,7 +54,7 @@ private:
     
     std::vector<uint64_t> primes;
     mutable std::mutex primes_mutex;
-    std::vector<PrimeResult> results;
+    std::set<PrimeResult> results;
     mutable std::mutex results_mutex;
     
     std::atomic<size_t> total_calculated{0};

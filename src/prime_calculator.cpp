@@ -22,35 +22,66 @@ PrimeCalculator::PrimeCalculator(size_t thread_count)
     primes_found = 1;
 }
 
+class Semaphore {
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    size_t count_;
+
+public:
+    explicit Semaphore(size_t count = 0) : count_(count) {}
+
+    void notify() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++count_;
+        cv_.notify_one();
+    }
+
+    void wait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [this] { return count_ > 0; });
+        --count_;
+    }
+};
+
 void PrimeCalculator::calculate_up_to(uint64_t max_number) {
     if (max_number < 2) return;
     
-    // Number of numbers each worker should process in one batch
     constexpr size_t batch_size = 1000;
+    const size_t max_in_flight = thread_pool->get_thread_count() * 2;
     
-    // Start from 3, check only odd numbers
-    uint64_t current = 3;
+    // Semaphore to limit in-flight batches
+    Semaphore sem(max_in_flight);
     std::vector<std::future<void>> futures;
     
-    // Create initial batch of work
-    while (current <= max_number) {
-        uint64_t batch_start = current;
-        uint64_t batch_end = std::min(current + batch_size * 2, max_number | 1);
+    // Start from 3, check only odd numbers
+    for (uint64_t n = 3; n <= max_number; n += 2) {
+        // Wait if we've reached max in-flight batches
+        if (futures.size() >= max_in_flight) {
+            // Wait for any batch to complete
+            auto it = std::find_if(futures.begin(), futures.end(),
+                [](const auto& f) { 
+                    return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready; 
+                });
+            
+            if (it != futures.end()) {
+                it->wait();
+                futures.erase(it);
+            } else {
+                futures.front().wait();
+                futures.erase(futures.begin());
+            }
+        }
         
-        futures.push_back(thread_pool->enqueue([this, batch_start, batch_end]() {
-            for (uint64_t n = batch_start; n <= batch_end; n += 2) {
-                process_number(n);
+        // Process a batch of numbers
+        uint64_t batch_end = std::min(n + batch_size * 2 - 2, max_number | 1);
+        
+        futures.push_back(thread_pool->enqueue([this, n, batch_end]() {
+            for (uint64_t num = n; num <= batch_end; num += 2) {
+                process_number(num);
             }
         }));
         
-        current = batch_end + 2;
-        
-        // Limit the number of in-flight batches to 2x the number of threads
-        if (futures.size() >= thread_pool->get_thread_count() * 2) {
-            // Wait for the first batch to complete
-            futures.front().wait();
-            futures.erase(futures.begin());
-        }
+        n = batch_end; // Skip to the end of this batch
     }
     
     // Wait for all remaining batches to complete
@@ -58,12 +89,7 @@ void PrimeCalculator::calculate_up_to(uint64_t max_number) {
         future.wait();
     }
     
-    // Sort the results by number
-    std::lock_guard<std::mutex> lock(results_mutex);
-    std::sort(results.begin(), results.end(), 
-        [](const PrimeResult& a, const PrimeResult& b) {
-            return a.number < b.number;
-        });
+    // Results are already sorted in the set (no need to sort again)
 }
 
 bool PrimeCalculator::is_prime(uint64_t n) const {
@@ -96,7 +122,7 @@ void PrimeCalculator::process_number(uint64_t n) {
     
     {
         std::lock_guard<std::mutex> lock(results_mutex);
-        results.push_back(result);
+        results.insert(result);
     }
     
     if (prime) {
@@ -115,5 +141,5 @@ std::vector<uint64_t> PrimeCalculator::get_primes() const {
 
 std::vector<PrimeResult> PrimeCalculator::get_detailed_results() const {
     std::lock_guard<std::mutex> lock(results_mutex);
-    return results;
+    return {results.begin(), results.end()};
 }

@@ -78,11 +78,11 @@ int main(int argc, char* argv[]) {
         }
         
         // Print detailed timing for the first 10 numbers
-        std::cout << "\n\n=== Detailed Timing (first 10 numbers) ===\n";
+        std::cout << "\n\n=== Detailed Timing (first 100 numbers) ===\n";
         std::cout << "Number  | Prime? | Time (µs)\n";
         std::cout << "--------|--------|-----------\n";
         
-        size_t count = std::min<size_t>(10, results.size());
+        size_t count = std::min<size_t>(100 results.size());
         for (size_t i = 0; i < count; ++i) {
             const auto& result = results[i];
             std::cout << std::setw(7) << result.number << " | "
