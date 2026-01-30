@@ -1,0 +1,14 @@
+[package]
+name = "prime_calculator_rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.5"  # For parallel processing
+chrono = "0.4"  # For measuring time
+
+[dev-dependencies]
+criterion = "0.3"  # For benchmarking
+
+[lib]
+crate-type = ["cdylib", "rlib"]
